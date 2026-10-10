@@ -418,6 +418,12 @@ class OrderService
         $this->user->plan_id = $plan->id;
         $this->user->group_id = $plan->group_id;
         $this->user->expired_at = $this->getTime($order->period, $this->user->expired_at);
+        // Restore scheduling after leaving a one-time/no-plan state; keep existing renewal dates.
+        if ($this->user->next_reset_at === null) {
+            $this->user->setRelation('plan', $plan);
+            $this->user->next_reset_at = app(TrafficResetService::class)
+                ->calculateNextResetTime($this->user)?->timestamp;
+        }
     }
 
     private function buyByOneTime(Plan $plan)
