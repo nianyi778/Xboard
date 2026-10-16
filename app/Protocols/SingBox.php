@@ -333,9 +333,10 @@ class SingBox extends AbstractProtocol
             $this->restoreDeprecatedInboundFields();
         }
 
-        // < 1.12.0: DNS type+server → 旧 address 格式
+        // < 1.12.0: DNS type+server → 旧 address 格式；移除 1.12 才引入的默认解析器
         if (version_compare($coreVersion, '1.12.0', '<')) {
             $this->convertDnsServersToLegacy();
+            $this->removeDefaultDomainResolver();
         }
 
         // < 1.10.0: tun address 数组 → inet4_address/inet6_address
@@ -453,6 +454,22 @@ class SingBox extends AbstractProtocol
             if (!empty($inbound['sniff'])) {
                 $inbound['sniff_override_destination'] = true;
             }
+        }
+    }
+
+    /**
+     * sing-box < 1.12.0: 移除 `route.default_domain_resolver`。
+     *
+     * 🔴 该字段是 1.12.0 才引入的（1.12 引入 outbound/dial 的 domain_resolver 体系）。
+     *    1.11 对未知字段是 FATAL 解码失败 —— 实测 sing-box 1.11.15 直接起不来：
+     *    `route.default_domain_resolver: json: unknown field`。
+     *    1.11 用 `dns.servers`（此处已转成旧 address 格式）做解析，不需要该字段，
+     *    移除即可。1.12/1.13 仍保留（1.13 缺它反而会 FATAL）。
+     */
+    private function removeDefaultDomainResolver(): void
+    {
+        if (isset($this->config['route']['default_domain_resolver'])) {
+            unset($this->config['route']['default_domain_resolver']);
         }
     }
 
