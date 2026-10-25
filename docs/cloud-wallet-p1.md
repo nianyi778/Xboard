@@ -311,3 +311,14 @@ SQLite 文件，结束后删除；测试中只创建 cloud wallet 迁移所需�
   顺带清理。
 - 没有新增对账导出脚本，只有 `/reconcile` 分页 API。
 - 未执行完整历史迁移集和完整应用回归；探针聚焦本接口及与订阅扣款的竞争。
+
+## Codex 独立复核补强
+
+初版独立探针 8/10：发现换 key 同订单二次扣款及空退款原因，均已修正。
+新增 source/order_no/kind 唯一约束，拒绝同一云订单第二笔扣款。debit 决定（含余额不足、封号、用户不存在）在事务内持久化；拒绝后充值，同一个 key 的迟到重放仍拒绝，明确新尝试须换 key。金融流水与拒绝决定分表，但余额仍仅一份。
+
+退款原因禁止空白；nonce TTL 至少 300 秒、签名时差最多 60 秒，防止配置缩短 TTL 后在签名仍有效时重放。迁移回退也禁止删除已有幂等决定。
+
+独立复跑 HTTP + 双进程并发探针共 268 条 PASS，独立资金探针 15/15（见 tests/CloudWallet/codex_independent_probe.php）。PHP 8.5.12 + Laravel 12.54.1 + 真实 SQLite；未验证生产 PHP 8.2/Octane 或 MySQL。并发订阅路径为真实 UserService::addBalance + 已有 OrderWriteTransaction 补丁，不代表跑过完整订阅支付链。
+
+新增探针用法：`php tests/CloudWallet/codex_independent_probe.php <Xboard checkout> <vendor directory>`。所有样本均为隔离测试，不部署、不修改生产。

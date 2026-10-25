@@ -46,7 +46,7 @@ class CloudWalletService
         ]);
 
         try {
-            return CloudWalletTransaction::run(function () use (
+            $result = CloudWalletTransaction::run(function () use (
                 $userId,
                 $orderNo,
                 $idempotencyKey,
@@ -62,6 +62,19 @@ class CloudWalletService
                     return $this->replay($existing, $requestHash);
                 }
 
+                $decision = DB::table('v2_cloud_wallet_debit_decisions')
+                    ->where('idempotency_key', $idempotencyKey)->lockForUpdate()->first();
+                if ($decision) return $this->decisionResult($decision, $requestHash);
+                // Separate from the key: one successful debit per cloud order.
+                if (CloudWalletLedger::where('source', 'cloud')->where('order_no', $orderNo)
+                    ->where('kind', 'debit')->exists()) {
+                    throw CloudWalletException::idempotencyConflict();
+                }
+                DB::table('v2_cloud_wallet_debit_decisions')->insert([
+                    'idempotency_key' => $idempotencyKey, 'request_hash' => $requestHash,
+                    'outcome' => 'pending', 'error_code' => null, 'ledger_id' => null, 'created_at' => time(),
+                ]);
+
                 $affected = DB::table('v2_user')
                     ->where('id', $userId)
                     ->where('banned', 0)
@@ -69,12 +82,18 @@ class CloudWalletService
                     ->decrement('balance', $amountCents);
 
                 if ($affected === 0) {
-                    $this->raiseDebitFailure($userId);
+                    try { $this->raiseDebitFailure($userId); }
+                    catch (CloudWalletException $e) {
+                        DB::table('v2_cloud_wallet_debit_decisions')->where('idempotency_key', $idempotencyKey)
+                            ->update(['outcome' => 'rejected', 'error_code' => $e->errorCode()]);
+                        // Commit the rejection before returning an error to the caller.
+                        return ['_rejection' => $e->errorCode()];
+                    }
                 }
 
                 $balanceAfter = (int) DB::table('v2_user')->where('id', $userId)->value('balance');
 
-                return $this->insertLedger([
+                $ledger = $this->insertLedger([
                     'idempotency_key' => $idempotencyKey,
                     'request_hash' => $requestHash,
                     'user_id' => $userId,
@@ -86,17 +105,22 @@ class CloudWalletService
                     'debit_id' => null,
                     'reason' => null,
                 ]);
+                DB::table('v2_cloud_wallet_debit_decisions')->where('idempotency_key', $idempotencyKey)
+                    ->update(['outcome' => 'accepted', 'ledger_id' => (int) $ledger['id']]);
+                return $ledger;
             });
         } catch (UniqueConstraintViolationException $e) {
-            return $this->resolveDebitRace($idempotencyKey, $requestHash);
+            $result = $this->resolveDebitRace($idempotencyKey, $requestHash);
         }
+        return $this->unwrapDecision($result);
     }
 
     public function refund(array $payload): array
     {
         $debitId = $this->ledgerId($payload['debitId'] ?? null, 'debitId');
         $idempotencyKey = $this->stringValue($payload['idempotencyKey'] ?? null, 'idempotencyKey', 128);
-        $reason = $this->stringValue($payload['reason'] ?? null, 'reason', 255, true);
+        $reason = $this->stringValue($payload['reason'] ?? null, 'reason', 255);
+        if (trim($reason) === '') throw CloudWalletException::invalidRequest('reason is required');
         $requestHash = $this->hash([
             'kind' => CloudWalletLedger::KIND_REFUND,
             'debitId' => (string) $debitId,
@@ -249,7 +273,30 @@ class CloudWalletService
             return $this->replay($existing, $requestHash);
         }
 
-        throw CloudWalletException::walletBusy();
+        $decision = DB::table('v2_cloud_wallet_debit_decisions')->where('idempotency_key', $idempotencyKey)->first();
+        if ($decision) return $this->decisionResult($decision, $requestHash);
+        throw CloudWalletException::idempotencyConflict();
+    }
+
+    private function decisionResult(object $decision, string $requestHash): array
+    {
+        if (!hash_equals($decision->request_hash, $requestHash)) throw CloudWalletException::idempotencyConflict();
+        if ($decision->outcome === 'rejected') return ['_rejection' => $decision->error_code];
+        if ($decision->outcome !== 'accepted' || !$decision->ledger_id) throw CloudWalletException::walletBusy();
+        $ledger = CloudWalletLedger::find($decision->ledger_id);
+        if (!$ledger) throw CloudWalletException::walletBusy();
+        return $ledger->toContract();
+    }
+
+    private function unwrapDecision(array $result): array
+    {
+        if (!isset($result['_rejection'])) return $result;
+        throw match ($result['_rejection']) {
+            'insufficient_funds' => CloudWalletException::insufficientFunds(),
+            'user_banned' => CloudWalletException::userBanned(),
+            'not_found' => CloudWalletException::notFound(),
+            default => CloudWalletException::walletUnavailable(),
+        };
     }
 
     private function resolveRefundRace(string $idempotencyKey, string $requestHash, int $debitId): array

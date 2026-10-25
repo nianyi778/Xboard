@@ -26,6 +26,20 @@ return new class extends Migration
                 $table->integer('created_at');
                 $table->index(['created_at', 'id'], 'cloud_wallet_ledger_day_id');
                 $table->index(['user_id', 'id'], 'cloud_wallet_ledger_user_id');
+                $table->unique(['source', 'order_no', 'kind'], 'cloud_wallet_order_kind_unique');
+            });
+        }
+
+        // A decline is an immutable idempotency result, too: a delayed duplicate
+        // must not start debiting after a top-up while cloud has moved to a new attempt.
+        if (!Schema::hasTable('v2_cloud_wallet_debit_decisions')) {
+            Schema::create('v2_cloud_wallet_debit_decisions', function (Blueprint $table) {
+                $table->string('idempotency_key', 128)->primary();
+                $table->char('request_hash', 64);
+                $table->string('outcome', 16);
+                $table->string('error_code', 64)->nullable();
+                $table->unsignedBigInteger('ledger_id')->nullable()->unique();
+                $table->integer('created_at');
             });
         }
 
@@ -48,6 +62,10 @@ return new class extends Migration
             );
         }
 
+        if (Schema::hasTable('v2_cloud_wallet_debit_decisions') && DB::table('v2_cloud_wallet_debit_decisions')->exists()) {
+            throw new RuntimeException('Refusing to erase persisted wallet idempotency decisions.');
+        }
+        Schema::dropIfExists('v2_cloud_wallet_debit_decisions');
         Schema::dropIfExists('v2_cloud_wallet_nonce');
         Schema::dropIfExists('v2_cloud_wallet_ledger');
     }

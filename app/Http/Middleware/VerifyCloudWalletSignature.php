@@ -56,7 +56,7 @@ class VerifyCloudWalletSignature
                 throw CloudWalletException::invalidSignature('signature must be hex HMAC SHA256');
             }
 
-            $clockSkew = (int) config('cloud_wallet.clock_skew_seconds', 60);
+            $clockSkew = max(0, min(60, (int) config('cloud_wallet.clock_skew_seconds', 60)));
             if (abs(time() - (int) $timestamp) > $clockSkew) {
                 throw CloudWalletException::invalidTimestamp('timestamp is outside the allowed window');
             }
@@ -102,7 +102,7 @@ class VerifyCloudWalletSignature
     private function consumeNonce(string $keyId, string $nonce): void
     {
         $now = time();
-        $ttl = max(1, (int) config('cloud_wallet.nonce_ttl_seconds', 300));
+        $ttl = max(300, (int) config('cloud_wallet.nonce_ttl_seconds', 300));
         $normalized = strtolower($nonce);
 
         DB::transaction(function () use ($keyId, $normalized, $now, $ttl): void {
