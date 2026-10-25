@@ -12,3 +12,5 @@ run_php() {
 run_php "$ROOT/tests/CloudWallet/cloud_wallet_http_probe.php"
 run_php "$ROOT/tests/CloudWallet/cloud_wallet_concurrency_probe.php"
 run_php "$ROOT/tests/CloudWallet/legacy_balance_guard_probe.php"
+
+run_php "$ROOT/tests/CloudWallet/private_ingress_probe.php"

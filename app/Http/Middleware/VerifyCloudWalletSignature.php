@@ -26,6 +26,15 @@ class VerifyCloudWalletSignature
     public function handle(Request $request, Closure $next): JsonResponse
     {
         try {
+            $ingressFile = (string) config('cloud_wallet.ingress_key_file', '');
+            if ($ingressFile !== '' || app()->environment('production')) {
+                $ingress = $ingressFile !== '' && is_readable($ingressFile)
+                    ? trim((string) file_get_contents($ingressFile)) : '';
+                $provided = (string) $request->headers->get('X-Tianji-Wallet-Ingress', '');
+                if (strlen($ingress) < 32 || !hash_equals($ingress, $provided)) {
+                    return CloudWalletResponse::fail(404, 'not_found', 'not found');
+                }
+            }
             if (!(bool) config('cloud_wallet.enabled', false)) {
                 throw CloudWalletException::walletDisabled();
             }

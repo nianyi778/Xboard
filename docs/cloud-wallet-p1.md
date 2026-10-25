@@ -327,3 +327,7 @@ SQLite 文件，结束后删除；测试中只创建 cloud wallet 迁移所需�
 `LegacyBalanceWriteGuard` 禁止在钱包启用或已有云账变后通过 V2/Admin/User/update 直接设置绝对余额；初始参数和插件过滤后的参数均检查。API 停用但账变仍存在时不会重新开放该路径。退款仍必须引用原 debit、原因、操作人；本期不新增任意人工加减款入口。
 
 兼容性边界：旧后台如整表单包含 `balance`，即使金额未变也会拒绝，编辑其他资料须省略该字段，不能用提交旧值冒充“未改余额”。佣金字段、既有充值和订阅扣款不经此门禁。首次启用前须排空旧代码在途管理员写请求；生产部署和后台表单回验尚未执行。
+
+## 生产私有入口（2026-10-25）
+
+生产环境要求 `CLOUD_WALLET_INGRESS_KEY_FILE` 指向独立的网关凭据；缺失、不可读或请求未携带匹配的 `X-Tianji-Wallet-Ingress` 时返回 404，包括停用状态。该凭据由仅 loopback 监听的专用 TLS 网关注入，不交给浏览器或 cloud-api。调用方 HMAC 仍独立校验。私有链路采用受限 SSH 转发，不新增公网钱包端口。`tests/CloudWallet/private_ingress_probe.php` 覆盖公开入口拒绝、伪造拒绝、双重认证、停用及密钥缺失。

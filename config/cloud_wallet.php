@@ -7,6 +7,10 @@ return [
     */
     'enabled' => env('CLOUD_WALLET_ENABLED', false),
 
+    // Private gateway proof, independent of caller HMAC. Production routes
+    // remain unreachable via the public Xboard listener, even when disabled.
+    'ingress_key_file' => env('CLOUD_WALLET_INGRESS_KEY_FILE', ''),
+
     /*
     | Dedicated key id sent by the caller in X-Tianji-Wallet-Key-Id. It must
     | match the key material below; PAY_ADMIN or other panel keys are never
