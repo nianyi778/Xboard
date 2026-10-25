@@ -322,3 +322,8 @@ SQLite 文件，结束后删除；测试中只创建 cloud wallet 迁移所需�
 独立复跑 HTTP + 双进程并发探针共 268 条 PASS，独立资金探针 15/15（见 tests/CloudWallet/codex_independent_probe.php）。PHP 8.5.12 + Laravel 12.54.1 + 真实 SQLite；未验证生产 PHP 8.2/Octane 或 MySQL。并发订阅路径为真实 UserService::addBalance + 已有 OrderWriteTransaction 补丁，不代表跑过完整订阅支付链。
 
 新增探针用法：`php tests/CloudWallet/codex_independent_probe.php <Xboard checkout> <vendor directory>`。所有样本均为隔离测试，不部署、不修改生产。
+# 后续安全修订（2026-10-25）
+
+`LegacyBalanceWriteGuard` 禁止在钱包启用或已有云账变后通过 V2/Admin/User/update 直接设置绝对余额；初始参数和插件过滤后的参数均检查。API 停用但账变仍存在时不会重新开放该路径。退款仍必须引用原 debit、原因、操作人；本期不新增任意人工加减款入口。
+
+兼容性边界：旧后台如整表单包含 `balance`，即使金额未变也会拒绝，编辑其他资料须省略该字段，不能用提交旧值冒充“未改余额”。佣金字段、既有充值和订阅扣款不经此门禁。首次启用前须排空旧代码在途管理员写请求；生产部署和后台表单回验尚未执行。
