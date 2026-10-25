@@ -228,6 +228,9 @@ class UserController extends Controller
     public function update(UserUpdate $request)
     {
         $params = $request->validated();
+        if ($blocked = \App\Services\CloudWallet\LegacyBalanceWriteGuard::reject($params)) {
+            return $blocked;
+        }
 
         $user = User::find($request->input('id'));
         if (!$user) {
@@ -272,6 +275,9 @@ class UserController extends Controller
         }
 
         $params = HookManager::filter('admin.user.update.params', $params, $request, $user);
+        if ($blocked = \App\Services\CloudWallet\LegacyBalanceWriteGuard::reject($params)) {
+            return $blocked;
+        }
 
         HookManager::call('admin.user.update.before', [
             'user' => $user,
